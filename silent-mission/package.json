@@ -1,0 +1,15 @@
+{
+  "name": "silent-mission",
+  "version": "1.0.0",
+  "description": "Silent Mission - a 2-team, 3-player silent communication game for workshops",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.7.5",
+    "socket.io-client": "^4.8.3"
+  }
+}

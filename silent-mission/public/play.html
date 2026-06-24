@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Silent Mission</title>
+<link rel="stylesheet" href="style.css">
+<script src="/socket.io/socket.io.js"></script>
+<script src="i18n.js"></script>
+</head>
+<body>
+<div class="app-shell" style="max-width:520px">
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span><span data-i18n="app_name">المهمة الصامتة</span></div>
+    <button id="lang-toggle" class="lang-toggle">🌐 <span id="lang-toggle-label"></span></button>
+  </div>
+
+  <div id="role-card" class="role-card fade-in">
+    <div class="row">
+      <span class="tag" id="team-name-tag"></span>
+    </div>
+    <h1 class="role-name" id="role-name-display"></h1>
+    <p class="role-desc" id="role-desc-display"></p>
+
+    <div class="ability-row" id="ability-row"></div>
+
+    <div class="divider"></div>
+
+    <div id="status-waiting" class="center">
+      <p class="muted" id="status-text" data-i18n="waiting_for_host"></p>
+    </div>
+
+    <div id="status-mission" style="display:none">
+      <p class="tag tag-mission" id="mission-tag-player"></p>
+      <h3 data-i18n="secret_mission_for_knower_only" id="knower-only-label" style="display:none"></h3>
+      <h2 id="mission-title-player" style="margin-top:8px"></h2>
+      <p id="mission-brief-player" style="line-height:1.7; color:var(--paper-dim)"></p>
+      <p id="mission-success-player"><strong data-i18n="success_condition"></strong>: <span id="mission-success-text"></span></p>
+      <p class="tag" id="board-note-player" style="display:none" data-i18n="needs_board_note"></p>
+    </div>
+
+    <div id="status-playing" style="display:none">
+      <div class="timer-display" id="player-timer">00:00</div>
+      <p class="center muted" id="role-reminder"></p>
+    </div>
+
+    <div id="status-done" style="display:none" class="center">
+      <div class="big-emoji" id="done-emoji">🎉</div>
+      <h2 id="done-text"></h2>
+    </div>
+  </div>
+</div>
+
+<script>
+const params = new URLSearchParams(window.location.search);
+const teamId = params.get('team');
+const role = params.get('role');
+
+const socket = io();
+let currentState = null;
+let myMission = null;
+
+initLangToggle('lang-toggle');
+
+socket.on('connect', () => {
+  socket.emit('register', { as: 'player', teamId, role });
+});
+
+socket.on('state', (s) => {
+  currentState = s;
+  render();
+});
+
+socket.on('mission', (m) => {
+  myMission = m;
+  render();
+});
+
+function onLanguageChanged() { render(); }
+
+function fmtTime(sec) {
+  const m = Math.floor(sec / 60).toString().padStart(2, '0');
+  const s = (sec % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
+}
+
+const ABILITIES = {
+  knower:       { see: true,  hear: true,  talk: false },
+  intermediary: { see: true,  hear: false, talk: true  },
+  performer:    { see: false, hear: true,  talk: true  }
+};
+
+function renderAbilities() {
+  const ab = ABILITIES[role];
+  const row = document.getElementById('ability-row');
+  row.innerHTML = '';
+  const items = [
+    { key: 'see', icon: '👁️', on: ab.see },
+    { key: 'hear', icon: '👂', on: ab.hear },
+    { key: 'talk', icon: '🗣️', on: ab.talk }
+  ];
+  items.forEach(item => {
+    const div = document.createElement('div');
+    div.className = 'ability-badge ' + (item.on ? 'active' : 'disabled');
+    const label = item.on ? t('can_' + item.key) : t('cannot_' + item.key);
+    div.innerHTML = `<span class="icon">${item.icon}</span><span class="ability-label">${label}</span>`;
+    row.appendChild(div);
+  });
+}
+
+function render() {
+  if (!currentState) return;
+  const roleCard = document.getElementById('role-card');
+  roleCard.className = 'role-card fade-in role-' + role;
+
+  document.getElementById('role-name-display').textContent = t('role_' + role);
+  document.getElementById('role-desc-display').textContent = t('role_' + role + '_desc');
+  renderAbilities();
+
+  const team = currentState.teams[teamId];
+  if (team) {
+    const lang = getLang();
+    document.getElementById('team-name-tag').textContent = team.name[lang] || team.name.ar;
+  }
+
+  const showOnly = (id) => {
+    ['status-waiting','status-mission','status-playing','status-done'].forEach(p => {
+      document.getElementById(p).style.display = (p === id) ? '' : 'none';
+    });
+  };
+
+  if (currentState.phase === 'setup' || currentState.phase === 'lobby') {
+    showOnly('status-waiting');
+    document.getElementById('status-text').textContent = t('waiting_for_host');
+  } else if (currentState.phase === 'briefing') {
+    showOnly('status-mission');
+    renderMissionPanel();
+  } else if (currentState.phase === 'playing') {
+    showOnly('status-playing');
+    renderMissionPanel();
+    document.getElementById('status-mission').style.display = (role === 'knower') ? '' : 'none';
+    document.getElementById('player-timer').textContent = fmtTime(currentState.timer.remainingSec);
+    document.getElementById('role-reminder').textContent = t('follow_silently');
+  } else if (currentState.phase === 'team_done' || currentState.phase === 'final_result') {
+    showOnly('status-done');
+    const myTeamDone = currentState.teams[teamId];
+    if (myTeamDone && myTeamDone.result) {
+      const success = myTeamDone.result === 'success';
+      document.getElementById('done-emoji').textContent = success ? '🎉' : '😅';
+      document.getElementById('done-text').textContent = success ? t('result_success') : t('result_fail');
+    }
+  } else {
+    showOnly('status-waiting');
+  }
+}
+
+function renderMissionPanel() {
+  const lang = getLang();
+  document.getElementById('knower-only-label').style.display = (role === 'knower') ? '' : 'none';
+
+  if (role === 'knower' && myMission) {
+    document.getElementById('mission-tag-player').textContent = '';
+    document.getElementById('mission-title-player').textContent = myMission.title[lang];
+    document.getElementById('mission-brief-player').textContent = myMission.briefing[lang];
+    document.getElementById('mission-success-text').textContent = myMission.successCondition[lang];
+    document.getElementById('board-note-player').style.display = myMission.needsBoard ? '' : 'none';
+    document.getElementById('mission-title-player').style.display = '';
+    document.getElementById('mission-brief-player').style.display = '';
+    document.getElementById('mission-success-player').style.display = '';
+  } else {
+    document.getElementById('mission-title-player').style.display = 'none';
+    document.getElementById('mission-brief-player').style.display = 'none';
+    document.getElementById('mission-success-player').style.display = 'none';
+    document.getElementById('board-note-player').style.display = 'none';
+    document.getElementById('mission-tag-player').textContent = currentState.phase === 'briefing' ? t('mission_starting_soon') : '';
+  }
+}
+</script>
+</body>
+</html>

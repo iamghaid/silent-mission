@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Silent Mission — Host</title>
+<link rel="stylesheet" href="style.css">
+<script src="/socket.io/socket.io.js"></script>
+<script src="i18n.js"></script>
+</head>
+<body>
+<div class="app-shell">
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span><span data-i18n="app_name">المهمة الصامتة</span> · <span class="muted" data-i18n="host_title">لوحة تحكم المضيف</span></div>
+    <button id="lang-toggle" class="lang-toggle">🌐 <span id="lang-toggle-label"></span></button>
+  </div>
+
+  <!-- SETUP -->
+  <div id="panel-setup" class="card fade-in">
+    <h2 data-i18n="setup_phase">إعداد الجولة</h2>
+    <div class="divider"></div>
+
+    <p class="muted" data-i18n="choose_mission_type">اختر نوع المهمة</p>
+    <div class="btn-row">
+      <button class="btn btn-ghost" data-mission-type="technical" data-i18n="mission_type_technical">مهمة تقنية 💻</button>
+      <button class="btn btn-ghost" data-mission-type="physical" data-i18n="mission_type_physical">مهمة فيزيائية 🏫</button>
+    </div>
+
+    <p class="muted" style="margin-top:20px" data-i18n="choose_difficulty">اختر الصعوبة</p>
+    <div class="btn-row">
+      <button class="btn btn-ghost" data-difficulty="easy" data-i18n="difficulty_easy">سهل</button>
+      <button class="btn btn-ghost" data-difficulty="medium" data-i18n="difficulty_medium">متوسط</button>
+      <button class="btn btn-ghost" data-difficulty="hard" data-i18n="difficulty_hard">صعب</button>
+    </div>
+
+    <div class="divider"></div>
+    <div class="spread">
+      <div>
+        <span class="tag" id="current-team-tag"></span>
+      </div>
+      <button id="btn-show-qr" class="btn btn-primary" data-i18n="show_join_codes">عرض رموز الانضمام</button>
+    </div>
+  </div>
+
+  <!-- QR / LOBBY -->
+  <div id="panel-lobby" class="card fade-in" style="display:none">
+    <div class="spread">
+      <h2 data-i18n="waiting_room">غرفة الانتظار</h2>
+      <span class="tag" id="lobby-team-tag"></span>
+    </div>
+    <p class="muted" data-i18n="players_joined">اللاعبون المنضمون</p>
+    <div class="qr-grid" id="qr-grid"></div>
+    <div class="slot-list" id="slot-list"></div>
+    <div class="btn-row" style="margin-top:18px">
+      <button id="btn-start-briefing" class="btn btn-primary btn-lg" data-i18n="start_briefing" disabled>بدء التحضير (عرض المهمة)</button>
+    </div>
+  </div>
+
+  <!-- BRIEFING (host sees mission, players notified) -->
+  <div id="panel-briefing" class="card fade-in" style="display:none">
+    <div class="spread">
+      <h2 data-i18n="mission_secret_panel">لوحة المهمة (للمضيف فقط)</h2>
+      <span class="tag tag-mission" id="briefing-mission-tag"></span>
+    </div>
+    <p class="muted" data-i18n="host_knows_mission_note">بصفتك المضيف، أنت تعرف المهمة لإدارة الوقت والحكم على المهمات الفيزيائية.</p>
+    <div class="divider"></div>
+    <h3 id="mission-title-display"></h3>
+    <p id="mission-brief-display" style="line-height:1.7; color:var(--paper-dim)"></p>
+    <p><strong data-i18n="success_condition">شرط النجاح</strong>: <span id="mission-success-display"></span></p>
+    <p id="mission-board-note" class="tag" style="display:none" data-i18n="needs_board_note"></p>
+    <div class="btn-row" style="margin-top:20px">
+      <button id="btn-start-mission" class="btn btn-success btn-lg" data-i18n="start_mission_timer">بدء المهمة والتايمر</button>
+    </div>
+  </div>
+
+  <!-- PLAYING -->
+  <div id="panel-playing" class="card fade-in" style="display:none">
+    <div class="spread">
+      <h2 data-i18n="mission_in_progress">المهمة جارية</h2>
+      <span class="tag tag-mission" id="playing-mission-tag"></span>
+    </div>
+    <div class="timer-display" id="timer-display">00:00</div>
+    <div class="btn-row center" style="justify-content:center">
+      <button id="btn-pause" class="btn btn-ghost" data-i18n="pause_timer">إيقاف مؤقت</button>
+      <button id="btn-resume" class="btn btn-ghost" data-i18n="resume_timer" style="display:none">استكمال</button>
+    </div>
+    <div class="divider"></div>
+    <h3 id="mission-title-display-2"></h3>
+    <p id="mission-brief-display-2" style="line-height:1.7; color:var(--paper-dim)"></p>
+    <p><strong data-i18n="success_condition">شرط النجاح</strong>: <span id="mission-success-display-2"></span></p>
+    <div class="btn-row" style="margin-top:20px">
+      <button id="btn-mark-success" class="btn btn-success btn-lg" data-i18n="mark_success">نجح ✅</button>
+      <button id="btn-mark-fail" class="btn btn-danger btn-lg" data-i18n="mark_fail">فشل ❌</button>
+    </div>
+  </div>
+
+  <!-- TEAM DONE -->
+  <div id="panel-team-done" class="card fade-in" style="display:none">
+    <h2 id="team-done-title"></h2>
+    <p id="team-done-result" style="font-size:1.3rem"></p>
+    <div class="btn-row" style="margin-top:18px">
+      <button id="btn-next-team" class="btn btn-primary btn-lg" data-i18n="next_team">الفريق التالي</button>
+    </div>
+  </div>
+
+  <!-- FINAL RESULT -->
+  <div id="panel-final" class="card fade-in" style="display:none">
+    <h2 data-i18n="final_result_title" class="center">النتيجة النهائية</h2>
+    <div class="center" style="margin:24px 0">
+      <div class="big-emoji">🏆</div>
+      <p class="muted" data-i18n="winner_is">الفريق الفائز</p>
+      <h1 id="winner-name-display" style="font-size:2.6rem; margin-top:6px"></h1>
+    </div>
+    <div id="final-summary" class="stack"></div>
+    <div class="btn-row" style="margin-top:24px; justify-content:center">
+      <button id="btn-reset" class="btn btn-primary btn-lg" data-i18n="play_again">جولة جديدة</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const socket = io();
+let currentState = null;
+let selectedMissionType = null;
+let selectedDifficulty = null;
+let joinInfo = null;
+
+initLangToggle('lang-toggle');
+
+socket.on('connect', () => {
+  socket.emit('register', { as: 'host' });
+});
+
+socket.on('state', (s) => {
+  currentState = s;
+  render();
+});
+
+function onLanguageChanged() { render(); }
+
+function fmtTime(sec) {
+  const m = Math.floor(sec / 60).toString().padStart(2, '0');
+  const s = (sec % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
+}
+
+function teamLabel(team) {
+  const lang = getLang();
+  return team.name[lang] || team.name.ar;
+}
+
+function missionTypeLabel(type) {
+  return type === 'technical' ? t('mission_type_technical') : t('mission_type_physical');
+}
+function difficultyLabel(d) {
+  return d === 'easy' ? t('difficulty_easy') : d === 'medium' ? t('difficulty_medium') : t('difficulty_hard');
+}
+
+document.querySelectorAll('[data-mission-type]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    selectedMissionType = btn.getAttribute('data-mission-type');
+    document.querySelectorAll('[data-mission-type]').forEach(b => b.classList.toggle('btn-primary', b === btn));
+    document.querySelectorAll('[data-mission-type]').forEach(b => b.classList.toggle('btn-ghost', b !== btn));
+    maybeSendConfig();
+  });
+});
+document.querySelectorAll('[data-difficulty]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    selectedDifficulty = btn.getAttribute('data-difficulty');
+    document.querySelectorAll('[data-difficulty]').forEach(b => b.classList.toggle('btn-primary', b === btn));
+    document.querySelectorAll('[data-difficulty]').forEach(b => b.classList.toggle('btn-ghost', b !== btn));
+    maybeSendConfig();
+  });
+});
+
+function maybeSendConfig() {
+  if (selectedMissionType && selectedDifficulty) {
+    socket.emit('host:setMissionConfig', { missionType: selectedMissionType, difficulty: selectedDifficulty });
+  }
+}
+
+document.getElementById('btn-show-qr').addEventListener('click', async () => {
+  const res = await fetch('/api/join-info');
+  joinInfo = await res.json();
+  renderLobby();
+  show('panel-lobby');
+});
+
+document.getElementById('btn-start-briefing').addEventListener('click', () => {
+  socket.emit('host:startBriefing');
+});
+document.getElementById('btn-start-mission').addEventListener('click', () => {
+  socket.emit('host:startMission');
+});
+document.getElementById('btn-pause').addEventListener('click', () => {
+  socket.emit('host:pauseTimer');
+});
+document.getElementById('btn-resume').addEventListener('click', () => {
+  socket.emit('host:resumeTimer');
+});
+document.getElementById('btn-mark-success').addEventListener('click', () => {
+  socket.emit('host:resolveTeam', { result: 'success' });
+});
+document.getElementById('btn-mark-fail').addEventListener('click', () => {
+  socket.emit('host:resolveTeam', { result: 'fail' });
+});
+document.getElementById('btn-next-team').addEventListener('click', () => {
+  socket.emit('host:nextTeam');
+});
+document.getElementById('btn-reset').addEventListener('click', () => {
+  socket.emit('host:resetGame');
+  selectedMissionType = null;
+  selectedDifficulty = null;
+  document.querySelectorAll('[data-mission-type], [data-difficulty]').forEach(b => {
+    b.classList.remove('btn-primary'); b.classList.add('btn-ghost');
+  });
+});
+
+function show(id) {
+  ['panel-setup','panel-lobby','panel-briefing','panel-playing','panel-team-done','panel-final'].forEach(p => {
+    document.getElementById(p).style.display = (p === id) ? '' : 'none';
+  });
+}
+
+function renderLobby() {
+  if (!currentState || !joinInfo) return;
+  const team = currentState.teams[currentState.activeTeamId];
+  document.getElementById('lobby-team-tag').textContent = teamLabel(team);
+
+  const grid = document.getElementById('qr-grid');
+  grid.innerHTML = '';
+  const roles = ['knower', 'intermediary', 'performer'];
+  roles.forEach(role => {
+    const info = joinInfo.teams[currentState.activeTeamId][role];
+    const tile = document.createElement('div');
+    tile.className = 'qr-tile';
+    tile.innerHTML = `<img src="${info.qr}" alt="QR ${role}"><div class="qr-role-label">${t('role_' + role)}</div>`;
+    grid.appendChild(tile);
+  });
+
+  const slotList = document.getElementById('slot-list');
+  slotList.innerHTML = '';
+  roles.forEach(role => {
+    const filled = !!team.slots[role];
+    const item = document.createElement('div');
+    item.className = 'slot-item' + (filled ? ' filled' : '');
+    item.innerHTML = `<span><span class="slot-dot"></span> ${t('role_' + role)}</span><span class="muted">${filled ? '✓' : t('not_joined_yet')}</span>`;
+    slotList.appendChild(item);
+  });
+
+  const allJoined = roles.every(r => !!team.slots[r]);
+  document.getElementById('btn-start-briefing').disabled = !allJoined;
+}
+
+function renderBriefing() {
+  const m = currentState.mission;
+  if (!m) return;
+  const lang = getLang();
+  document.getElementById('briefing-mission-tag').textContent = `${missionTypeLabel(m.type)} · ${difficultyLabel(m.difficulty)}`;
+  document.getElementById('mission-title-display').textContent = m.title[lang];
+  document.getElementById('mission-brief-display').textContent = m.briefing[lang];
+  document.getElementById('mission-success-display').textContent = m.successCondition[lang];
+  document.getElementById('mission-board-note').style.display = m.needsBoard ? '' : 'none';
+}
+
+function renderPlaying() {
+  const m = currentState.mission;
+  if (!m) return;
+  const lang = getLang();
+  document.getElementById('playing-mission-tag').textContent = `${missionTypeLabel(m.type)} · ${difficultyLabel(m.difficulty)}`;
+  document.getElementById('mission-title-display-2').textContent = m.title[lang];
+  document.getElementById('mission-brief-display-2').textContent = m.briefing[lang];
+  document.getElementById('mission-success-display-2').textContent = m.successCondition[lang];
+
+  const timer = currentState.timer;
+  const display = document.getElementById('timer-display');
+  display.textContent = fmtTime(timer.remainingSec);
+  display.classList.remove('warning', 'critical');
+  if (timer.remainingSec <= 10) display.classList.add('critical');
+  else if (timer.totalSec && timer.remainingSec <= timer.totalSec * 0.25) display.classList.add('warning');
+
+  document.getElementById('btn-pause').style.display = timer.running ? '' : 'none';
+  document.getElementById('btn-resume').style.display = (!timer.running && timer.remainingSec > 0) ? '' : 'none';
+}
+
+function renderTeamDone() {
+  const team = currentState.teams[currentState.activeTeamId];
+  document.getElementById('team-done-title').textContent = teamLabel(team);
+  const resultText = team.result === 'success' ? t('result_success') : t('result_fail');
+  document.getElementById('team-done-result').textContent = `${resultText} — ${t('time_used')}: ${fmtTime(team.timeUsedSec || 0)}`;
+}
+
+function renderFinal() {
+  const a = currentState.teams.team_a;
+  const b = currentState.teams.team_b;
+  const winnerId = currentState.winnerTeamId;
+  const winner = winnerId ? currentState.teams[winnerId] : null;
+  document.getElementById('winner-name-display').textContent = winner ? teamLabel(winner) : '—';
+
+  const summary = document.getElementById('final-summary');
+  summary.innerHTML = '';
+  [a, b].forEach(team => {
+    const row = document.createElement('div');
+    row.className = 'card';
+    row.style.padding = '16px 20px';
+    const resultText = team.result === 'success' ? t('result_success') : t('result_fail');
+    row.innerHTML = `<div class="spread"><strong>${teamLabel(team)}</strong><span class="muted">${resultText} · ${t('time_used')}: ${fmtTime(team.timeUsedSec || 0)}</span></div>`;
+    summary.appendChild(row);
+  });
+}
+
+function render() {
+  if (!currentState) return;
+  const team = currentState.teams[currentState.activeTeamId];
+  document.getElementById('current-team-tag').textContent = teamLabel(team);
+
+  switch (currentState.phase) {
+    case 'setup':
+      show('panel-setup');
+      break;
+    case 'lobby':
+      renderLobby();
+      show('panel-lobby');
+      break;
+    case 'briefing':
+      renderBriefing();
+      show('panel-briefing');
+      break;
+    case 'playing':
+      renderPlaying();
+      show('panel-playing');
+      break;
+    case 'team_done':
+      renderTeamDone();
+      show('panel-team-done');
+      break;
+    case 'final_result':
+      renderFinal();
+      show('panel-final');
+      break;
+    default:
+      show('panel-setup');
+  }
+}
+
+setInterval(() => {
+  if (currentState && currentState.phase === 'playing') renderPlaying();
+}, 1000);
+</script>
+</body>
+</html>
